@@ -1,0 +1,143 @@
+ desc:Ring Mod MonoSynth
+
+slider1:0<0,5,1{Sine,Asc. Saw,Desc. Saw,Square,Triangle}>Carrier Waveform
+slider2:0<0,1,1{Multiply,Divide}>Modulation Type
+slider3:0<0,5,1{Sine,Asc. Saw,Desc. Saw,Square,Triangle, Noise}>Program Waveform
+slider4:2<2,12>Program Frequency
+slider5:0<0,1>Program Phase
+slider6:1<0,1>Program Intensity
+slider7:0<0,1000>Attack (ms)
+slider8:0<0,1000>Decay (ms)
+slider9:1<0,1>Sustain
+slider10:0<0,1000>Release (ms)
+
+//in_pin:audio_in_left
+//in_pin:audio_in_right
+out_pin:audio_out_left
+out_pin:audio_out_right
+
+@init
+midi_pitch = -1;
+midi_pitch_out = -1;
+envelope = 1;
+was_playing = play_state;
+dphase = 1 / srate;
+
+function mod(num, divisor) (
+  num - (divisor * floor(num / divisor));
+);
+
+function saw(phase) (
+  2 * mod(phase, 1) - 1;
+);
+function squ(phase) (
+  mod(phase, 1) < 0.5 ? 1 : -1;
+);
+function tri(phase) (
+  mod(phase, 1) < 0.5 ? (
+    2 * mod(phase * 2, 1) - 1;
+  ) : (
+    -(2 * mod((phase - 0.5) * 2, 1) - 1);
+  );
+);
+
+function get_amp(wave, phase) (
+  wave == 0 ? (
+    sin(2 * $pi * phase);
+  ) : wave == 1 ? (
+    saw(phase);
+  ) : wave == 2 ? (
+    -saw(phase);
+  ) : wave == 3 ? (
+    squ(phase);
+  ) : wave == 4 ? (
+    tri(phase);
+  ) : wave == 5 ? (
+    rand(2) - 1;
+  );
+);
+
+function set_freq_p() (
+  slider2 ? (
+    freq_p = freq_c * slider4;
+  ) : (
+    freq_p = freq_c / slider4;
+  );
+);
+
+@slider
+set_freq_p();
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  //If note on/off
+  msg1 & 0xF0 == 0x90 ? (
+    msg2 == midi_pitch && msg3 == 0 ? (
+      t_note_off = t;
+      velocity = 0;
+    ) : (
+      midi_pitch = msg2;
+      velocity = msg3;
+      last_velocity = velocity;
+      freq_c = 440 * pow(2, (midi_pitch - 69) / 12);
+      set_freq_p();
+      phase_c = 0;
+      phase_p = 0;
+      t_note_on = t;
+    );
+  ) : msg1 & 0xF0 == 0x80 && msg2 == midi_pitch ? (
+    t_note_off = t;
+    velocity = 0;
+  );
+  midisend(offset, msg1, msg2, msg3);
+);
+
+was_playing == 1 && play_state == 0 ? (
+  velocity = 0;
+  t_note_off = t;
+);
+
+was_playing = play_state;
+
+
+@sample
+t += 1000 / srate;
+dt_note_on = t - t_note_on;
+dt_note_off = t - t_note_off;
+
+velocity != 0 ? (
+  //Attack
+  dt_note_on < slider7 ? (
+    envelope = dt_note_on / slider7;
+  //Decay
+  ) : dt_note_on - slider7 < slider8 ? (
+    envelope = (1 - slider9) * (1 - ((dt_note_on - slider7) / slider8)) + slider9;
+  //Sustain
+  ) : (
+    envelope = slider9;
+  );
+) : (
+  //Release
+  dt_note_off < slider10 ? (
+    envelope = slider9 * (1 - (dt_note_off / slider10));
+  //Off
+  ) : (
+    envelope = 0;
+  );
+);
+
+envelope > 0 ? (
+  phase_c += dphase * freq_c;
+  phase_p += dphase * freq_p;
+
+  amplitude = (
+    get_amp(slider1, phase_c) * (
+      (1 - slider6)
+      + slider6 * get_amp(slider3, phase_p + slider5)
+    )
+  ) * 0.9 * envelope;
+  amplitude *= last_velocity / 127;
+  
+  spl0 = amplitude;
+  spl1 = amplitude;
+);

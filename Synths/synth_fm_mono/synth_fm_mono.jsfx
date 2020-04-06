@@ -1,0 +1,127 @@
+desc:FM MonoSynth
+
+slider1:1<0,1>Osc 1 Amp
+slider2:0<-2,2,1>Octave
+slider3:0<0,1>Osc 2 Amp
+slider4:0<-12,12>Osc 2 Tune
+slider5:0<0,1>Osc 3 Amp
+slider6:0<-12,12>Osc 3 Tune
+slider7:0<0,1>Osc 4 Amp
+slider8:0<-12,12>Osc 4 Tune
+slider9:0<0,1000>Attack (ms)
+slider10:0<0,1000>Decay (ms)
+slider11:1<0,1>Sustain
+slider12:0<0,1000>Release (ms)
+
+//in_pin:audio_in_left
+//in_pin:audio_in_right
+out_pin:audio_out_left
+out_pin:audio_out_right
+
+@init
+midi_pitch = -1;
+midi_pitch_out = -1;
+envelope = 1;
+was_playing = play_state;
+dphase = 2 * $pi / srate;
+
+function set_freqs() (
+  midi_pitch_out = midi_pitch + (12 * slider2);
+  freq1 = 440 * pow(2, (midi_pitch_out - 69) / 12);
+  freq2 = 440 * pow(2, (midi_pitch_out + slider4 - 69) / 12);
+  freq3 = 440 * pow(2, (midi_pitch_out + slider6 - 69) / 12);
+  freq4 = 440 * pow(2, (midi_pitch_out + slider8 - 69) / 12);  
+);
+
+@slider
+beta2_old = beta2;
+beta3_old = beta3;
+beta4_old = beta4;
+beta2 = 2 * $pi * slider3;
+beta3 = 2 * $pi * slider5;
+beta4 = 2 * $pi * slider7;
+set_freqs();
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  //If note on/off
+  msg1 & 0xF0 == 0x90 ? (
+    msg2 == midi_pitch && msg3 == 0 ? (
+      t_note_off = t;
+      velocity = 0;
+    ) : (
+      midi_pitch = msg2;
+      velocity = msg3;
+      last_velocity = velocity;
+      set_freqs();
+      phase1 = 0;
+      t_note_on = t;
+    );
+  ) : msg1 & 0xF0 == 0x80 && msg2 == midi_pitch ? (
+    t_note_off = t;
+    velocity = 0;
+  );
+  midisend(offset, msg1, msg2, msg3);
+);
+
+was_playing == 1 && play_state == 0 ? (
+  velocity = 0;
+  t_note_off = t;
+);
+
+was_playing = play_state;
+
+
+@sample
+t += 1000 / srate;
+dt_note_on = t - t_note_on;
+dt_note_off = t - t_note_off;
+
+velocity != 0 ? (
+  //Attack
+  dt_note_on < slider9 ? (
+    envelope = dt_note_on / slider9;
+  //Decay
+  ) : dt_note_on - slider9 < slider10 ? (
+    envelope = (1 - slider11) * (1 - ((dt_note_on - slider9) / slider10)) + slider11;
+  //Sustain
+  ) : (
+    envelope = slider11;
+  );
+) : (
+  //Release
+  dt_note_off < slider12 ? (
+    envelope = slider11 * (1 - (dt_note_off / slider12));
+  //Off
+  ) : (
+    envelope = 0;
+  );
+);
+
+envelope > 0 ? (
+  damp4 = sin(phase4) * beta4_old;
+  phase4 += dphase * freq4;
+  damp4 = sin(phase4) * beta4 - damp4;
+  
+  damp3 = sin(phase3) * beta3_old;
+  phase3 += dphase * freq3 + damp4;
+  damp3 = sin(phase3) * beta3 - damp3;
+  
+  damp2 = sin(phase2) * beta2_old;
+  phase2 += dphase * freq2 + damp3;
+  damp2 = sin(phase2) * beta2 - damp2;
+  
+  phase1 += dphase * freq1 + damp2;
+  
+  beta2_old = beta2;
+  beta3_old = beta3;
+  beta4_old = beta4;
+  
+  amplitude = (
+    sin(phase1) * slider1
+  ) * 0.9 * envelope;
+  amplitude *= last_velocity / 127;
+  
+  spl0 = amplitude;
+  spl1 = amplitude;
+);

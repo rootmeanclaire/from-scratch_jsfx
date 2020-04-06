@@ -1,0 +1,162 @@
+desc:Ripple MonoSynth
+
+slider1:1<1,5,1>X Ripples
+slider2:1<1,5,1>Y Ripples
+slider3:2<2,5,1>X Pow
+slider4:2<2,5,1>Y Pow
+slider5:0<-1,1>Y Phase
+slider6:0<0,1>Ripple Phase
+slider7:0<0,1000>Attack (ms)
+slider8:0<0,1000>Decay (ms)
+slider9:1<0,1>Sustain
+slider10:0<0,1000>Release (ms)
+
+//in_pin:audio_in_left
+//in_pin:audio_in_right
+out_pin:audio_out_left
+out_pin:audio_out_right
+
+@init
+midi_pitch = -1;
+envelope = 1;
+was_playing = play_state;
+dphase = 1 / srate;
+gfx_res = 64;
+gfx_clear = (
+  0xB3 * 0x1 +
+  0xB3 * 0x100 +
+  0xB3 * 0x10000
+);
+
+function mod(num, divisor) (
+  num - (divisor * floor(num / divisor));
+);
+
+function get_amp(x, y) (
+  sin(
+    (slider1 * x)^slider3 + 
+    (slider2 * y)^slider4 + ripple_phase
+  );
+);
+
+
+@slider
+ripple_phase = 2 * $pi * slider6;
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  //If note on/off
+  msg1 & 0xF0 == 0x90 ? (
+    msg2 == midi_pitch && msg3 == 0 ? (
+      t_note_off = t;
+      velocity = 0;
+    ) : (
+      midi_pitch = msg2;
+      velocity = msg3;
+      last_velocity = velocity;
+      freq = 440 * pow(2, (midi_pitch - 69) / 12);
+      phase = 0;
+      t_note_on = t;
+    );
+  ) : msg1 & 0xF0 == 0x80 && msg2 == midi_pitch ? (
+    t_note_off = t;
+    velocity = 0;
+  );
+  midisend(offset, msg1, msg2, msg3);
+);
+
+was_playing == 1 && play_state == 0 ? (
+  velocity = 0;
+  t_note_off = t;
+);
+
+was_playing = play_state;
+
+
+@sample
+t += 1000 / srate;
+dt_note_on = t - t_note_on;
+dt_note_off = t - t_note_off;
+
+velocity != 0 ? (
+  //Attack
+  dt_note_on < slider7 ? (
+    envelope = dt_note_on / slider7;
+  //Decay
+  ) : dt_note_on - slider7 < slider8 ? (
+    envelope = (1 - slider9) * (1 - ((dt_note_on - slider7) / slider8)) + slider9;
+  //Sustain
+  ) : (
+    envelope = slider9;
+  );
+) : (
+  //Release
+  dt_note_off < slider10 ? (
+    envelope = slider9 * (1 - (dt_note_off / slider10));
+  //Off
+  ) : (
+    envelope = 0;
+  );
+);
+
+envelope > 0 ? (
+  phase += dphase * freq;
+  
+  amplitude = (
+    get_amp(2 * mod(phase, 1) - 1, slider5)
+  ) * 0.9 * envelope;
+  amplitude *= last_velocity / 127;
+  
+  spl0 = amplitude;
+  spl1 = amplitude;
+);
+
+
+@gfx 200 200
+gfx_pix_size = gfx_h / gfx_res;
+gfx_set(1, 0, 0);
+
+x = -gfx_res / 2;
+while (x < gfx_res / 2) (
+  y = -gfx_res / 2;
+  while (y < gfx_res / 2) (
+    gfx_set(0, 0, (
+      get_amp(
+        (x + 0.5) / (gfx_res / 2),
+        (y + 0.5) / (gfx_res / 2)
+      ) + 0.5
+    ) / 2);
+    
+    gfx_rect(
+      x * gfx_pix_size + gfx_w / 2,
+      y * gfx_pix_size + gfx_h / 2,
+      gfx_pix_size * 1.25,
+      gfx_pix_size * 1.25
+    );
+    
+    y += 1;
+  );
+  x += 1;
+);
+
+gfx_set(1, 1, 1);
+gfx_line(
+  gfx_w / 2,
+  0,
+  gfx_w / 2,
+  gfx_h
+);
+gfx_line(
+  gfx_w / 2 - gfx_h / 2,
+  gfx_h / 2,
+  gfx_w / 2 + gfx_h / 2,
+  gfx_h / 2
+);
+
+gfx_set(1, 1, 0);
+gfx_line(
+  gfx_w / 2 - gfx_h / 2,
+  (slider5 + 1) / 2 * gfx_h,
+  gfx_w / 2 + gfx_h / 2,
+  (slider5 + 1) / 2 * gfx_h
+);

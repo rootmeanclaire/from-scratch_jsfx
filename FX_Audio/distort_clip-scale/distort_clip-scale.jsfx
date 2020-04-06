@@ -1,0 +1,37 @@
+desc:Clip-Scale Distortion
+
+slider1:1<0.1,1>Clip at
+slider2:0.9<0,1>Max Volume
+slider3:1<0,1>Scale Type (Plus/Times)
+
+in_pin:audio_in_left
+in_pin:audio_in_right
+out_pin:audio_out_left
+out_pin:audio_out_right
+
+@init
+function times_scale(sample) (
+  sample /= slider1;
+  sample > slider2 ? (
+    slider2;
+  ) : sample < -slider2 ? (
+    -slider2;
+  ) : (
+    sample;
+  );
+);
+
+function plus_scale(sample) (
+  sample *= slider1;
+  sample == 0 ? (
+    sample;
+  ) : sample > 0 ? (
+    (sample + (1 - slider1)) * slider2;
+  ) : (
+    (sample - (1 - slider1)) * slider2;
+  );
+);
+
+@sample
+spl0 = slider3 * times_scale(spl0) + (1 - slider3) * plus_scale(spl0);
+spl1 = slider3 * times_scale(spl1) + (1 - slider3) * plus_scale(spl1);

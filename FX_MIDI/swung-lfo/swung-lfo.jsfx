@@ -1,0 +1,64 @@
+desc:Swung LFO
+
+slider1:3<0,127,1>MIDI CC
+slider2:67<0,100>Swing Ratio
+slider3:2<1,16,1>Swing On Nth Notes
+slider4:4<1,16,1>Cycles per Long Note
+slider5:4<1,16,1>Cycles per Short Note
+slider6:0.5<0,1>Phase
+slider7:0<0,5,1{Sine,Asc. Saw,Desc. Saw,Square,Triangle}>Waveform
+
+in_pin:none
+out_pin:none
+
+@init
+phase = 0;
+last_send = 0;
+
+function mod(num, divisor) (
+  num - (divisor * floor(num / divisor));
+);
+
+function send_lfo() (
+  slider7 == 0 ? (
+    new_send = (127 * (sin(2 * $pi * (phase + slider6)) + 1) / 2) & 0x7F;
+  ) : slider7 == 1 ? (
+    new_send = (127 * mod(phase + slider6, 1)) & 0x7F;
+  ) : slider7 == 2 ? (
+    new_send = (127 * (1 - mod((phase + slider6), 1))) & 0x7F;
+  ) : slider7 == 3 ? (
+    new_send = mod(phase + slider6, 1) < 0.5 ? 127 : 0;
+  ) : slider7 == 4 ? (
+    new_send = (
+      127 * (
+        mod(phase + slider6, 1) < 0.5 ? (
+          2 * mod(phase + slider6, 1)
+        ) : (
+          2 * (1 - mod((phase + slider6), 1))
+        )
+      )
+    ) & 0x7F;
+  );
+  new_send != last_send ? (
+    midisend(
+      0, 0xB0, slider1,
+      new_send
+    );
+    last_send = new_send;
+  );
+);
+
+@block
+trig_slow = 2 * (ts_denom / slider3);
+trig_fast = trig_slow * (slider2 / 100);
+sub_beat_pos = mod(beat_position, trig_slow);
+
+sub_beat_pos < trig_fast ? (
+  phase = sub_beat_pos * slider4 / trig_fast;
+  send_lfo();
+);
+
+sub_beat_pos >= trig_fast ? (
+  phase = (sub_beat_pos - trig_fast) * slider5 / (trig_slow - trig_fast);
+  send_lfo();
+);

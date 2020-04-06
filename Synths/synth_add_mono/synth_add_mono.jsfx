@@ -1,0 +1,120 @@
+desc:Additive MonoSynth
+
+slider1:1<0,1>Fundemental
+slider2:0<0,1>1st Harmonic
+slider3:0<0,1>2nd Harmonic
+slider4:0<0,1>3rd Harmonic
+slider5:0<0,1>4th Harmonic
+slider6:0<0,1>5th Harmonic
+slider7:0<0,1>6th Harmonic
+slider8:0<0,1>7th Harmonic
+slider9:0<0,1000>Attack (ms)
+slider10:0<0,1000>Decay (ms)
+slider11:1<0,1>Sustain
+slider12:0<0,1000>Release (ms)
+
+//in_pin:audio_in_left
+//in_pin:audio_in_right
+out_pin:audio_out_left
+out_pin:audio_out_right
+
+@init
+midi_pitch = -1;
+envelope = 1;
+was_playing = play_state;
+gfx_res = 150;
+
+function get_amp(phase, freq) (
+  (
+      slider1 * sin(1 * phase * freq)
+    + slider2 * sin(2 * phase * freq)
+    + slider3 * sin(3 * phase * freq)
+    + slider4 * sin(4 * phase * freq)
+    + slider5 * sin(5 * phase * freq)
+    + slider6 * sin(6 * phase * freq)
+    + slider7 * sin(7 * phase * freq)
+    + slider8 * sin(8 * phase * freq)
+  ) / 8;
+);
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  //If note on/off
+  msg1 & 0xF0 == 0x90 ? (
+    msg2 == midi_pitch && msg3 == 0 ? (
+      t_note_off = t;
+      velocity = 0;
+    ) : (
+      midi_pitch = msg2;
+      velocity = msg3;
+      freq_fund = 440 * pow(2, (msg2 - 69) / 12);
+      phase = 0;
+      t_note_on = t;
+    );
+  ) : msg1 & 0xF0 == 0x80 && msg2 == midi_pitch ? (
+    t_note_off = t;
+    velocity = 0;
+  );
+  midisend(offset, msg1, msg2, msg3);
+);
+
+was_playing == 1 && play_state == 0 ? (
+  velocity = 0;
+  t_note_off = t;
+);
+
+was_playing = play_state;
+
+
+@sample
+t += 1000 / srate;
+dt_note_on = t - t_note_on;
+dt_note_off = t - t_note_off;
+
+velocity != 0 ? (
+  //Attack
+  dt_note_on < slider9 ? (
+    envelope = dt_note_on / slider9;
+  //Decay
+  ) : dt_note_on - slider9 < slider10 ? (
+    envelope = (1 - slider11) * (1 - ((dt_note_on - slider9) / slider10)) + slider11;
+  //Sustain
+  ) : (
+    envelope = slider11;
+  );
+) : (
+  //Release
+  dt_note_off < slider12 ? (
+    envelope = slider11 * (1 - (dt_note_off / slider12));
+  //Off
+  ) : (
+    envelope = 0;
+  );
+);
+
+envelope > 0 ? (
+  phase_fund += 2 * $pi / srate;
+  amplitude = (
+    get_amp(phase_fund, freq_fund)
+  ) * envelope;
+  
+  velocity > 0 ? (
+    amplitude *= velocity / 127;
+  );
+  
+  spl0 = amplitude;
+  spl1 = amplitude;
+);
+
+@gfx 500 200
+i = 0;
+gfx_set(1,1,0);
+gfx_x = 0;
+gfx_y = gfx_h / 2;
+loop(gfx_res + 1,
+  gfx_lineto(
+    i * gfx_w / gfx_res,
+    gfx_h * -get_amp((i / gfx_res) * (2 * $pi), 4) + (gfx_h / 2)
+  );
+  i += 1;
+);

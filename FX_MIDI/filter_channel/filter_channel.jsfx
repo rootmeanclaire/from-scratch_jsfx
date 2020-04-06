@@ -1,0 +1,21 @@
+desc:MIDI Channel Filter
+
+slider1:0<0,0xF,1>Channel
+slider2:0<0,2,1{Include Channel, Exclude Channel}>Filter Type 
+
+in_pin:none
+out_pin:none
+
+@block
+while (midirecv(offset, msg1, msg2, msg3)) (
+  slider2 == 0 ? (
+    (msg1 == $x90 + slider1) || (msg1 == $x80 + slider1) ? (
+      midisend(offset, msg1, msg2, msg3);
+    );
+  ) : (
+    (msg1 != $x90 + slider1) || (msg1 != $x80 + slider1) ? (
+      midisend(offset, msg1, msg2, msg3);
+    );
+  );
+);
+
